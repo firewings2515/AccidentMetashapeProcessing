@@ -113,6 +113,8 @@ def fetch_split_photo_list(images_path_list, ref_path_list, mask_path_list, spli
             ref_list.extend(ref_split)
     return photos_list, mask_list, ref_list
 
+# image_file_list is a list of path
+# filename_list is a list of filename without extension
 def find_files(folder, types):
     image_file_list = []
     filename_list = []

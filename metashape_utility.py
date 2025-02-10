@@ -29,6 +29,7 @@ class MetashapeUtility:
         self.all_time_list = []
 
         self.point_cloud_name = pc_name
+        self.rolling_shutter_flag = False
 
     def check_compatibility(self):
         # Checking compatibility
@@ -108,10 +109,25 @@ class MetashapeUtility:
 
         start_import_mask_time = time.perf_counter()
         if os.path.exists(mask_path):
-            print('import mask file ' + mask_path + ' ...')
-            mask_files, mask_name_list = find_files(mask_path, [".jpg", ".jpeg", ".tif", ".tiff"])
+
+            mask_files, mask_name_list = find_files(mask_path, [".jpg", ".jpeg", ".tif", ".tiff", ".png"])
             
-            self.chunk.generateMasks(path=(mask_path + '/{filename}_mask.png'), masking_mode=Metashape.MaskingModeFile, mask_operation=Metashape.MaskOperationReplacement, cameras=self.new_cameras)
+            mask_camera = [camera for camera in self.new_cameras]
+            camera_path = [camera.label for camera in self.new_cameras]
+
+            mask_camera_list = []
+            for i in range(0, len(mask_camera)):
+                camera = mask_camera[i]
+                path = camera_path[i]
+                mask_name = pathlib.Path(path).stem + '_mask'
+                if (mask_name in mask_name_list):
+                    mask_camera_list.append(camera)
+            
+            if (len(mask_camera_list) == 0):
+                print('No mask camera found')
+                return
+
+            self.chunk.generateMasks(path=(mask_path + '/{filename}_mask.png'), masking_mode=Metashape.MaskingModeFile, mask_operation=Metashape.MaskOperationReplacement, cameras=mask_camera_list)
             self.doc.save()
 
             end_import_mask_time = time.perf_counter()
@@ -121,6 +137,10 @@ class MetashapeUtility:
         self.time_list.append(cost_time)
 
     def match_photos(self):
+
+        if (not self.rolling_shutter_flag):
+            self.enable_rolling_shutter_compensation()
+
         unaligned_cameras = [camera for camera in self.chunk.cameras if not camera.transform]
         start_match_time = time.perf_counter()
         print('Start matchPhotos...')
@@ -129,7 +149,9 @@ class MetashapeUtility:
 
         self.chunk.matchPhotos(cameras=unaligned_cameras, keypoint_limit = 3000, tiepoint_limit = 4000, keep_keypoints=True, 
                 generic_preselection = True, reset_matches=False, 
-                filter_stationary_points=False, guided_matching=False)
+                reference_preselection=True, reference_preselection_mode=Metashape.ReferencePreselectionSequential,
+                filter_stationary_points=False, guided_matching=False,
+                filter_mask=True, mask_tiepoints=False)
         self.doc.save()
 
         end_match_time = time.perf_counter()
@@ -140,7 +162,7 @@ class MetashapeUtility:
         start_align_time = time.perf_counter()
         print('Start alignCameras...')
         
-        self.chunk.alignCameras(cameras=unaligned_cameras, adaptive_fitting=True, reset_alignment=False)
+        self.chunk.alignCameras(cameras=unaligned_cameras, adaptive_fitting=False, reset_alignment=False)
         self.doc.save()
         end_align_time = time.perf_counter()
         cost_time = (end_align_time - start_align_time)
@@ -157,7 +179,7 @@ class MetashapeUtility:
         start_optimizeCamera_time = time.perf_counter()
         print('Start optimize camera...')
 
-        self.chunk.optimizeCameras(adaptive_fitting=True)
+        self.chunk.optimizeCameras()
         self.chunk.resetRegion()
         self.doc.save()
 
@@ -217,6 +239,12 @@ class MetashapeUtility:
             write = csv.writer(f)
             write.writerows(error_list)
 
+    def enable_rolling_shutter_compensation(self):
+        sensors = self.chunk.sensors
+        for sensor in sensors:
+            sensor.rolling_shutter = Metashape.Shutter.Model.Full
+        
+        print('enable rolling shutter compensation')
 
     def cal_camera_error(self, camera):
         # reference from https://github.com/agisoft-llc/metashape-scripts/blob/master/src/save_estimated_reference.py#L94
