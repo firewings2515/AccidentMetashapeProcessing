@@ -24,6 +24,7 @@ class MetashapeArguments:
         self.split_num = ["-1", "10"]
         # arpose file name in data root path
         self.ref_path = ["ARPose.txt", "ARPose.txt"]
+        self.mask_path = ["",""]
         self.metashapePath = "C:/Program Files/Agisoft/Metashape Pro/metashape.exe"
 
     def initial_with_config(self):
@@ -40,6 +41,8 @@ class MetashapeArguments:
                     self.split_num = data['split_num']
                 if ('ref_path' in data):
                     self.ref_path = data['ref_path']
+                if ('mask_path' in data):
+                    self.mask_path = data['mask_path']
     
     def check_args(self):
         usage_list = ['align', 'pointCloud']
@@ -76,8 +79,11 @@ class MetashapeArguments:
             self.args.append("--split_num")
             for num in self.split_num:
                 self.args.append(num)
-
-            self.args.append("--copy")
+            
+            self.args.append("--mask_path")
+            for path in self.mask_path:
+                self.args.append(os.path.join(self.data_root, path))
+            # self.args.append("--copy")
         
         self.args.append("--usage")
         self.args.append(self.usage)
