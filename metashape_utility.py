@@ -204,7 +204,7 @@ class MetashapeUtility:
         start_pointCloud_time = time.perf_counter()
         print('Start build point cloud...')
 
-        self.chunk.buildPointCloud(replace_asset=True)
+        self.chunk.buildPointCloud(replace_asset=True, max_neighbors=10)
         self.doc.save()
         if self.chunk.point_cloud:
             self.chunk.exportPointCloud(os.path.join(self.project_path, self.point_cloud_name), source_data = Metashape.PointCloudData)
@@ -213,6 +213,19 @@ class MetashapeUtility:
         end_pointCloud_time = time.perf_counter()
         cost_time = (end_pointCloud_time - start_pointCloud_time)
         print('Build Point cloud time: %f s' % (cost_time))
+        self.all_time_list.append([cost_time])
+
+    def build_texture(self, image_list):
+        start_texture_time = time.perf_counter()
+        print('Start build texture...')
+
+        camera_list = [camera for camera in self.all_cameras if (camera.label in image_list)]
+        self.chunk.buildTexture(blending_mode=Metashape.MosaicBlending, texture_size=2048, fill_holes=True, cameras=camera_list)
+        self.doc.save()
+
+        end_texture_time = time.perf_counter()
+        cost_time = (end_texture_time - start_texture_time)
+        print('Build texture time: %f s' % (cost_time))
         self.all_time_list.append([cost_time])
 
     def copy_chunk(self):
@@ -337,3 +350,219 @@ class MetashapeUtility:
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             write = csv.writer(f)
             write.writerows(self.all_time_list)
+
+    def transform_to_ui_coord(self, coord):
+        return self.chunk.crs.project(self.chunk.transform.matrix.mulp(coord))
+
+    def render_top_view(self, mode='model', pixel_cm=0.2):
+        # internal coordinates to geographic coordinates: transform_to_ui_coord
+        # offset on internal coordinates must be multiplied by region.rot
+        
+        standard_pixel_cm = 0.2
+        # get project parameters
+        chunk = self.chunk
+        chunk.resetRegion()
+        region = chunk.region
+        
+        real_center = self.transform_to_ui_coord(region.center)
+        center = region.center
+
+        # calculate geographic coordinates
+        left_x = self.transform_to_ui_coord(center - region.rot*Metashape.Vector([region.size.x * 0.5, 0, 0])).x
+        right_x = self.transform_to_ui_coord(center + region.rot*Metashape.Vector([region.size.x * 0.5, 0, 0])).x
+        left_z = self.transform_to_ui_coord(center - region.rot*Metashape.Vector([0, 0, region.size.z * 0.5])).z
+        right_z = self.transform_to_ui_coord(center + region.rot*Metashape.Vector([0, 0, region.size.z * 0.5])).z
+        top_y = self.transform_to_ui_coord(center + region.rot*Metashape.Vector([0, region.size.y * 0.5, 0])).y
+        bottom_y = self.transform_to_ui_coord(center - region.rot*Metashape.Vector([0, region.size.y * 0.5, 0])).y
+        real_size = Metashape.Vector([abs(right_x - left_x), abs(top_y - bottom_y), abs(right_z - left_z)])
+        # print("centerT: ", real_center)
+        print("real size:", real_size)
+
+        pixel_m = standard_pixel_cm * 100
+        # calculate resolution
+        resolution_width = pixel_m * real_size.x
+        resolution_height = pixel_m * real_size.z
+
+        # calculate camera render location
+        location = region.center
+        # print("location: ", location)
+
+        max_resolution = max(resolution_width, resolution_height)
+        max_side = max(region.size.x, region.size.z)
+
+        factor = pixel_cm / standard_pixel_cm
+        print("factor: ", factor)
+        height_factor = 2 * factor
+        camera_height = max_side / height_factor
+        # location = location + region.rot * Metashape.Vector([0,  camera_height, 0])
+        # T = Metashape.Matrix([[1,0,0], [0,0,-1], [0,1,0]])
+        print("location: ", location)
+        # opposite rotation
+        location = location - region.rot * Metashape.Vector([0,  camera_height, 0])
+        T = Metashape.Matrix([[1,0,0], [0,0,1], [0,1,0]])
+        R = region.rot * T
+        cameraT = Metashape.Matrix().Translation(location) * Metashape.Matrix().Rotation(R)    
+
+        calibration = Metashape.Calibration()
+        calibration.width = resolution_width * factor
+        calibration.height = resolution_height * factor
+        print("resolution: ", resolution_width, resolution_height)
+        calibration.f = max_resolution // 2
+        # print("region size: ", region.size)
+
+        if (mode == 'model'):
+            image = self.chunk.model.renderImage(cameraT, calibration)
+        elif (mode == 'point_cloud'):
+            image = self.chunk.point_cloud.renderImage(cameraT, calibration)
+        image.save(os.path.join(self.project_path, f"render_{pixel_cm}.jpg"))
+
+    def export_point_to_pixel(self):
+        chunk = self.chunk
+        M = chunk.transform.matrix
+        crs = chunk.crs
+        point_cloud = chunk.tie_points
+        projections = point_cloud.projections
+        points = point_cloud.points
+        npoints = len(points)
+        tracks = point_cloud.tracks
+
+        # path = Metashape.app.getSaveFileName("Specify export path and filename:", filter ="Text / CSV (*.txt *.csv);;All files (*.*)")
+        path = os.path.join(self.project_path, "point_to_pixel.txt")
+        file = open(path, "wt")
+        print("Script started...")
+
+        point_ids = [-1] * len(point_cloud.tracks)
+        for point_id in range(0, npoints):
+            point_ids[points[point_id].track_id] = point_id
+        points_proj = {}
+
+        for photo in chunk.cameras:
+
+            if not photo.transform:
+                continue
+            T = photo.transform.inv()
+            calib = photo.sensor.calibration
+            
+            for proj in projections[photo]:
+                track_id = proj.track_id
+                point_id = point_ids[track_id]
+
+                if point_id < 0:
+                    continue
+                if not points[point_id].valid: #skipping invalid points
+                    continue
+
+                point_index = point_id
+                if point_index in points_proj.keys():
+                    x, y = proj.coord
+                    points_proj[point_index] = (points_proj[point_index] + "\n" + photo.label + "\t{:.2f}\t{:.2f}".format(x, y))
+
+                else:
+                    x, y = proj.coord
+                    points_proj[point_index] = ("\n" + photo.label + "\t{:.2f}\t{:.2f}".format(x, y))
+            
+        for point_index in range(npoints):
+
+            if not points[point_index].valid:
+                continue
+
+            coord = M * points[point_index].coord
+            coord.size = 3
+            if chunk.crs:
+                #coord
+                X, Y, Z = chunk.crs.project(coord)
+            else:
+                X, Y, Z = coord
+
+            line = points_proj[point_index]
+            
+            file.write("{}\t{:.6f}\t{:.6f}\t{:.6f}\t{:s}\n".format(point_index, X, Y, Z, line))
+
+        file.close()					
+        print("Finished")
+    
+    def export_camera_transform(self):
+        chunk = self.chunk
+        cameras = chunk.cameras
+
+        def wrtie_all_transform(chunk, cameras):
+
+            # path = Metashape.app.getSaveFileName("Specify export path and filename:", filter ="Text / CSV (*.txt *.csv);;All files (*.*)")
+            path = os.path.join(self.project_path, "camera_poses.txt")
+            file = open(path, "wt")
+
+            print("Script started...")
+            # export transform matrix
+            for photo in cameras:
+                if not photo.transform:
+                    continue
+                T = photo.transform.inv()
+                calib = photo.sensor.calibration
+                file.write("{}\t".format(photo.label))
+                # save in one line
+                translation = photo.transform.translation()
+
+                for j in range(3):
+                    for i in range(3):
+                        file.write("{:.6f} ".format(T[i, j]))
+                        if i == 2:
+                            file.write("{:.6f} ".format(translation[j]))
+                        if i == 2 and j == 2:
+                            # write 0 0 0 1
+                            file.write("0.000000 0.000000 0.000000 1.000000")
+                            file.write("\n")
+            file.close()
+
+            print("Finished")
+            
+        def wrtie_transform_each_file(chunk, cameras):
+            # path = Metashape.app.getSaveFileName("Specify export path and filename:", filter ="Text / CSV (*.txt *.csv);;All files (*.*)")
+            path = os.path.join(self.project_path, "cam")
+            if (not os.path.exists(path)):
+                os.mkdir(path)
+            print("Script started...")
+            calib = chunk.sensors[0].calibration
+            F = calib.f / calib.width
+            cx = (calib.width / 2 + calib.cx) / calib.width
+            cy = (calib.height / 2 + calib.cy) / calib.height
+            # export transform matrix
+            for photo in cameras:
+                transform_filename = photo.label + ".cam"
+                file = open(os.path.join(path, transform_filename), "wt")
+
+                if not photo.transform:
+                    continue
+                T = photo.transform.inv()
+                
+                # save in one line
+                translation = photo.transform.translation()
+                for i in range(len(translation)):
+                    file.write("{:.6f} ".format(translation[i]))
+
+                for j in range(3):
+                    for i in range(3):
+                        file.write("{:.6f} ".format(T[i, j]))
+
+                file.write("\n")
+                file.write("{:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}\n".format(F, 0, 0, 1, cx, cy))
+                file.close()
+
+            print("Finished")
+        wrtie_all_transform(chunk, cameras)
+    
+    def export_orthomosaic(self, path='./', name='ortho_black.tif', resolution=0.01, bbox_min=[0, 0], bbox_max=[0, 0]):
+        chunk = self.chunk
+        print(chunk.label)
+        # path = Metashape.app.getSaveFileName("Specify export path and filename:", filter ="Text / CSV (*.txt *.csv);;All files (*.*)")
+        bbox = Metashape.BBox()
+        bbox.max = Metashape.Vector(bbox_max)
+        bbox.min = Metashape.Vector(bbox_min)
+        chunk.exportRaster(
+            path=os.path.join(path, name),
+            image_format=Metashape.ImageFormatTIFF,
+            region=bbox,
+            resolution_x=resolution,
+            resolution_y=resolution,
+            save_alpha=False,
+            white_background=False
+        )

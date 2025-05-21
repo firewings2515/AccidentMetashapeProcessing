@@ -32,10 +32,11 @@ def set_args():
     parser.add_argument('--error_name', '-er', type=str, default='error.txt')
     parser.add_argument('--unalign_name', '-un', type=str, default='unalign.txt')
     parser.add_argument("--copy", default=False, action="store_true")
+    parser.add_argument("--image_list", type=str, help="file contains image list")
     return parser.parse_args()
 
 def check_args(args):
-    usage = ['align', 'error', 'unalign', 'pointCloud', 'complete', 'photo_align']
+    usage = ['align', 'error', 'unalign', 'pointCloud', 'complete', 'photo_align', 'texture']
     match_path_usage = ['align', 'complete']
     if args.usage not in usage:
         raise Exception("Invalid usage")
@@ -47,6 +48,15 @@ def check_args(args):
         print_log(args)
         print("image_path required for align mode")
         raise Exception("Invalid image_path")
+    if args.usage == 'texture':
+        if args.image_list is None:
+            print_log(args)
+            print("image_list required for texture mode")
+            raise Exception("Invalid image_list")
+        if not os.path.exists(args.image_list):
+            print_log(args)
+            print("image_list path not exists or invalid")
+            raise Exception("Invalid image_list path")
 
     if (args.usage in match_path_usage):
         if args.ref_path is not None and len(args.image_path) != len(args.ref_path):
@@ -112,6 +122,16 @@ def fetch_split_photo_list(images_path_list, ref_path_list, mask_path_list, spli
             mask_list.extend(mask_split)
             ref_list.extend(ref_split)
     return photos_list, mask_list, ref_list
+
+def load_image_list(path):
+    # each line in the file is name without stem to an image
+    # output a list of image file name
+    filename_list = []
+    with open(path, 'r') as f:
+        for line in f:
+            filename = line.strip()
+            filename_list.append(filename)
+    return filename_list
 
 # image_file_list is a list of path
 # filename_list is a list of filename without extension

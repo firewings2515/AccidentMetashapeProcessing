@@ -109,6 +109,13 @@ def metashape_unalign_log(project, unalign_name):
 
     project.save_unalign_log(unalign_name)
 
+def metashape_build_Texture(project, image_list_path):
+    project.open_project()
+
+    image_list = load_image_list(image_list_path)
+
+    project.build_texture(image_list)
+
 if __name__ == '__main__':
     args = set_args()
 
@@ -147,4 +154,7 @@ if __name__ == '__main__':
 
     if (args.usage == 'pointCloud'):
         metashape_build_pointcloud(metashape_proj)
+    
+    if (args.usage == 'texture'):
+        metashape_build_Texture(metashape_proj, args.image_list)
     
