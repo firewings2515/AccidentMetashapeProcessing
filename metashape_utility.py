@@ -550,19 +550,53 @@ class MetashapeUtility:
             print("Finished")
         wrtie_all_transform(chunk, cameras)
     
-    def export_orthomosaic(self, path='./', name='ortho_black.tif', resolution=0.01, bbox_min=[0, 0], bbox_max=[0, 0]):
+    def export_orthomosaic(self, path='./', name='ortho.tif', resolution=0.01, bbox_min=None, bbox_max=None):
         chunk = self.chunk
         print(chunk.label)
         # path = Metashape.app.getSaveFileName("Specify export path and filename:", filter ="Text / CSV (*.txt *.csv);;All files (*.*)")
-        bbox = Metashape.BBox()
-        bbox.max = Metashape.Vector(bbox_max)
-        bbox.min = Metashape.Vector(bbox_min)
-        chunk.exportRaster(
-            path=os.path.join(path, name),
-            image_format=Metashape.ImageFormatTIFF,
-            region=bbox,
-            resolution_x=resolution,
-            resolution_y=resolution,
-            save_alpha=False,
-            white_background=False
-        )
+        img_compress_def = Metashape.ImageCompression()
+        img_compress_def.tiff_big = True
+        img_compress_def.tiff_tiled = False
+        img_compress_def.tiff_overviews = False
+        img_compress_def.tiff_compression = Metashape.ImageCompression.TiffCompressionNone
+        if bbox_min is None or bbox_max is None:
+            chunk.exportRaster(
+                path=os.path.join(path, name),
+                image_format=Metashape.ImageFormatTIFF,
+                image_compression=img_compress_def,
+                resolution_x=resolution,
+                resolution_y=resolution,
+                # split_in_blocks=True,
+                # block_width=1024,
+                # block_height=1024,
+                save_alpha=False,
+                white_background=False
+            )
+        else:
+            bbox = Metashape.BBox()
+            bbox.max = Metashape.Vector(bbox_max)
+            bbox.min = Metashape.Vector(bbox_min)
+            chunk.exportRaster(
+                path=os.path.join(path, name),
+                image_format=Metashape.ImageFormatTIFF,
+                image_compression=img_compress_def,
+                region=bbox,
+                resolution_x=resolution,
+                resolution_y=resolution,
+                # split_in_blocks=True,
+                # block_width=1024,
+                # block_height=1024,
+                save_alpha=False,
+                white_background=False
+            )
+
+        if not chunk.shapes:
+            return
+        
+        shape = chunk.shapes.shapes[0]
+        coordinates = shape.geometry.coordinates[0]
+        
+        export_path = os.path.join(path, "shape.txt")
+        with open(export_path, 'w') as f:
+            for coordinate in coordinates:
+                f.write("{:.6f} {:.6f} {:.6f}\n".format(coordinate.x, coordinate.y, coordinate.z))
