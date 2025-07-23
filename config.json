@@ -1,0 +1,7 @@
+{
+	"metashapeExePath": "C:/Program Files/Agisoft/Metashape Pro/metashape.exe",
+	"image_path": ["2024-08-29T11-12-19/image_fps5", "2024-08-29T11-13-31/image_fps5", "2024-08-29T11-15-08/image_fps5", "2024-08-29T11-17-18/image_fps5", "2024-08-29T11-18-33/image_fps5", "2024-08-29T11-20-05/image_fps5"],
+	"ref_path": ["ARposes_extracted_angles.txt", "ARposes_extracted_angles.txt", "ARposes_extracted_angles.txt", "ARposes_extracted_angles.txt", "ARposes_extracted_angles.txt", "ARposes_extracted_angles.txt"],
+	"split_num": ["20", "20", "20", "20", "20", "20"],
+	"mask_path": ["2024-08-29T11-12-19/mask_fps5", "2024-08-29T11-13-31/mask_fps5", "2024-08-29T11-15-08/mask_fps5", "2024-08-29T11-17-18/mask_fps5", "2024-08-29T11-18-33/mask_fps5", "2024-08-29T11-20-05/mask_fps5"]
+}
